@@ -3016,6 +3016,30 @@ local function vehicleCheck(player)
     end
 end
 
+local function ClearZombieInfection(player, stats, bodyDamage)
+    if isClient() then
+        local args = { zombie_fever = 100, zombie_infection = 0, clear_wounds = true }
+        sendClientCommand(player, "ToadTraits", "UpdateStats", args)
+        return
+    end
+
+    -- We set the Fever here to 100 for the Health Loss and simulate fighting the infection
+    stats:set(CharacterStat.ZOMBIE_FEVER, 100)
+    stats:set(CharacterStat.ZOMBIE_INFECTION, 0)
+    bodyDamage:setInfected(false)
+    bodyDamage:setInfectionMortalityDuration(-1)
+    bodyDamage:setInfectionTime(-1)
+
+    local parts = bodyDamage:getBodyParts()
+    for i = 0, parts:size() - 1 do
+        local b = parts:get(i)
+        if b:HasInjury() and b:isInfectedWound() then
+            b:SetInfected(false)
+            b:setInfectedWound(false)
+        end
+    end
+end
+
 local function SuperImmune(player, playerdata)
     if not player:hasTrait(ToadTraitsRegistries.superimmune) then
         return
@@ -3024,31 +3048,13 @@ local function SuperImmune(player, playerdata)
     local stats = player:getStats()
     local zombieInfection = stats:get(CharacterStat.ZOMBIE_INFECTION)
     local bodyDamage = player:getBodyDamage()
+    local hasBodyInfection = bodyDamage:isInfected()
 
-    if zombieInfection <= 0 then
+    if zombieInfection <= 0 and not hasBodyInfection then
         return
     end
 
-    if isClient() then
-        local args = { zombie_fever = 100, zombie_infection = 0, clear_wounds = true }
-        sendClientCommand(player, "ToadTraits", "UpdateStats", args)
-    else
-        -- We set the Fever here to 100 for the Health Loss and simulate fighting the infection
-        stats:set(CharacterStat.ZOMBIE_FEVER, 100)
-        stats:set(CharacterStat.ZOMBIE_INFECTION, 0)
-        bodyDamage:setInfected(false)
-        bodyDamage:setInfectionMortalityDuration(-1)
-        bodyDamage:setInfectionTime(-1)
-
-        local parts = bodyDamage:getBodyParts()
-        for i = 0, parts:size() - 1 do
-            local b = parts:get(i)
-            if b:HasInjury() and b:isInfectedWound() then
-                b:SetInfected(false)
-                b:setInfectedWound(false)
-            end
-        end
-    end
+    ClearZombieInfection(player, stats, bodyDamage)
 
     local minimum = SandboxVars.MoreTraits.SuperImmuneMinDays or 10
     local maximum = SandboxVars.MoreTraits.SuperImmuneMaxDays or 30
@@ -3103,8 +3109,22 @@ local function SuperImmuneRecoveryProcess(player, playerdata)
     local speedRun = playerdata.QuickSuperImmune and 6 or 1
 
     local stats = player:getStats()
+    local bodyDamage = player:getBodyDamage()
     local illness = stats:get(CharacterStat.ZOMBIE_FEVER)
     local startIllness = illness -- Store to check if we need to sync later
+
+    -- Build 42 can desync body infection and CharacterStat.ZOMBIE_INFECTION.
+    -- Keep both cleared while Super Immune is active so players don't re-zombify.
+    if bodyDamage:isInfected() or stats:get(CharacterStat.ZOMBIE_INFECTION) > 0 then
+        if isClient() then
+            sendClientCommand(player, "ToadTraits", "UpdateStats", { zombie_infection = 0, clear_wounds = true })
+        else
+            stats:set(CharacterStat.ZOMBIE_INFECTION, 0)
+            bodyDamage:setInfected(false)
+            bodyDamage:setInfectionMortalityDuration(-1)
+            bodyDamage:setInfectionTime(-1)
+        end
+    end
 
     if timeElapsed < maxRecoveryMinutes then
         playerdata.SuperImmuneTextSaid = false
