@@ -2765,14 +2765,53 @@ end
 
 -- This is going to need some proper testing to determine what should be acceptable values for both traits as well as the actual cost to these traits.
 -- In 42.17, Gimp remains on the working position-adjustment path. Fast is being
--- re-tested with the old deferred-movement math, but now using moveUnmodded(x, y),
--- which matches the currently exposed game method name/signature.
+-- re-tested with the old deferred-movement math. In Build 42.17, the exposed
+-- method on IsoMovingObject is MoveUnmodded(Vector2), so we pass a vector and
+-- keep a Move(Vector2) fallback for compatibility.
 local FastGimpVector = Vector2.new(0, 0)
+local FastGimpAdjustVector = Vector2.new(0, 0)
 
 local function MT_TryMoveUnmodded(player, x, y)
-    return pcall(function()
-        player:moveUnmodded(x, y)
-    end)
+    FastGimpAdjustVector:setX(x)
+    FastGimpAdjustVector:setY(y)
+
+    if player.MoveUnmodded then
+        return pcall(function()
+            player:MoveUnmodded(FastGimpAdjustVector)
+        end)
+    end
+
+    if player.Move then
+        return pcall(function()
+            player:Move(FastGimpAdjustVector)
+        end)
+    end
+
+    return false
+end
+
+local function MT_ApplyFastGimpPositionFallback(player, playerdata, speedMultiplier)
+    if not playerdata then
+        return
+    end
+
+    local oldX = playerdata.fToadTraitsPlayerX
+    local oldY = playerdata.fToadTraitsPlayerY
+    local newX = player:getX()
+    local newY = player:getY()
+
+    if oldX ~= nil and oldY ~= nil then
+        local xDiff = newX - oldX
+        local yDiff = newY - oldY
+
+        if math.abs(xDiff) <= 5 and math.abs(yDiff) <= 5 and (xDiff ~= 0 or yDiff ~= 0) then
+            player:setX(oldX + (xDiff * speedMultiplier))
+            player:setY(oldY + (yDiff * speedMultiplier))
+        end
+    end
+
+    playerdata.fToadTraitsPlayerX = player:getX()
+    playerdata.fToadTraitsPlayerY = player:getY()
 end
 
 local function MT_FastGimpMove(player)
@@ -2817,7 +2856,9 @@ local function MT_FastGimpMove(player)
             modifier = SandboxVars.MoreTraits.FastSprint or 0.75
         elseif player:isRunning() then
             modifier = SandboxVars.MoreTraits.FastRunning or 0.5
-        elseif player:isWalking() then
+        else
+            -- Build 42.17 does not always report "walking" state while the player
+            -- is moving, so treat every other moving state as walking-speed bonus.
             modifier = SandboxVars.MoreTraits.FastWalking or 0.25
         end
     elseif hasGimp then
@@ -2825,7 +2866,8 @@ local function MT_FastGimpMove(player)
             modifier = SandboxVars.MoreTraits.GimpSprint or -0.25
         elseif player:isRunning() then
             modifier = SandboxVars.MoreTraits.GimpRunning or -0.5
-        elseif player:isWalking() then
+        else
+            -- Same fallback for gimp penalty when movement is not tagged as walk/run.
             modifier = SandboxVars.MoreTraits.GimpWalking or -0.75
         end
     end
@@ -2850,7 +2892,19 @@ local function MT_FastGimpMove(player)
 
     local x = rawX * modifier
     local y = rawY * modifier
-    MT_TryMoveUnmodded(player, x, y)
+
+    local beforeX = player:getX()
+    local beforeY = player:getY()
+    local movedViaEngine = MT_TryMoveUnmodded(player, x, y)
+
+    local movedDeltaX = math.abs(player:getX() - beforeX)
+    local movedDeltaY = math.abs(player:getY() - beforeY)
+    if not movedViaEngine or (movedDeltaX < 0.0001 and movedDeltaY < 0.0001) then
+        MT_ApplyFastGimpPositionFallback(player, playerdata, 1 + modifier)
+    else
+        playerdata.fToadTraitsPlayerX = player:getX()
+        playerdata.fToadTraitsPlayerY = player:getY()
+    end
 
     -- Debug trace kept here for future troubleshooting, but disabled for normal use
     -- so the player's console log does not get spammed every few seconds.
@@ -2859,7 +2913,7 @@ local function MT_FastGimpMove(player)
     -- if now - lastDebug >= 2000 then
     --     playerdata.MTFastDebugLast = now
     --     print(string.format(
-    --         "More Traits Movement Debug 42.17 shared | mode=moveUnmodded-lowercase | trait=%s | state=%s | aiming=%s | modifier=%.3f | x=%.4f | y=%.4f | usedMoveUnmodded=%s",
+    --         "More Traits Movement Debug 42.17 shared | mode=MoveUnmodded-vector | trait=%s | state=%s | aiming=%s | modifier=%.3f | x=%.4f | y=%.4f | usedMoveUnmodded=%s",
     --         hasFast and "fast" or "gimp",
     --         player:isSprinting() and "sprint" or (player:isRunning() and "run" or (player:isWalking() and "walk" or "idle")),
     --         tostring(player:isAiming()),
@@ -4210,7 +4264,7 @@ local function GymGoerUpdate(player, playerdata)
             if isClient() then
                 local bodyParts = {}
                 for _, partType in ipairs(group.parts) do
-                    table.insert(bodyParts, partType:getIndex())
+                    table.insert(bodyParts, BodyPartType.ToIndex(partType))
                 end
                 sendClientCommand(
                         player,
