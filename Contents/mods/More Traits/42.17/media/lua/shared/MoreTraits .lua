@@ -2765,14 +2765,29 @@ end
 
 -- This is going to need some proper testing to determine what should be acceptable values for both traits as well as the actual cost to these traits.
 -- In 42.17, Gimp remains on the working position-adjustment path. Fast is being
--- re-tested with the old deferred-movement math, but now using moveUnmodded(x, y),
--- which matches the currently exposed game method name/signature.
+-- re-tested with the old deferred-movement math. In Build 42.17, the exposed
+-- method on IsoMovingObject is MoveUnmodded(Vector2), so we pass a vector and
+-- keep a Move(Vector2) fallback for compatibility.
 local FastGimpVector = Vector2.new(0, 0)
+local FastGimpAdjustVector = Vector2.new(0, 0)
 
 local function MT_TryMoveUnmodded(player, x, y)
-    return pcall(function()
-        player:moveUnmodded(x, y)
-    end)
+    FastGimpAdjustVector:setX(x)
+    FastGimpAdjustVector:setY(y)
+
+    if player.MoveUnmodded then
+        return pcall(function()
+            player:MoveUnmodded(FastGimpAdjustVector)
+        end)
+    end
+
+    if player.Move then
+        return pcall(function()
+            player:Move(FastGimpAdjustVector)
+        end)
+    end
+
+    return false
 end
 
 local function MT_FastGimpMove(player)
@@ -2859,7 +2874,7 @@ local function MT_FastGimpMove(player)
     -- if now - lastDebug >= 2000 then
     --     playerdata.MTFastDebugLast = now
     --     print(string.format(
-    --         "More Traits Movement Debug 42.17 shared | mode=moveUnmodded-lowercase | trait=%s | state=%s | aiming=%s | modifier=%.3f | x=%.4f | y=%.4f | usedMoveUnmodded=%s",
+    --         "More Traits Movement Debug 42.17 shared | mode=MoveUnmodded-vector | trait=%s | state=%s | aiming=%s | modifier=%.3f | x=%.4f | y=%.4f | usedMoveUnmodded=%s",
     --         hasFast and "fast" or "gimp",
     --         player:isSprinting() and "sprint" or (player:isRunning() and "run" or (player:isWalking() and "walk" or "idle")),
     --         tostring(player:isAiming()),
