@@ -2763,57 +2763,6 @@ local function amputee(player, justGotInfected)
     end
 end
 
--- This is going to need some proper testing to determine what should be acceptable values for both traits as well as the actual cost to these traits.
--- In 42.17, Gimp remains on the working position-adjustment path. Fast is being
--- re-tested with the old deferred-movement math. In Build 42.17, the exposed
--- method on IsoMovingObject is MoveUnmodded(Vector2), so we pass a vector and
--- keep a Move(Vector2) fallback for compatibility.
-local FastGimpVector = Vector2.new(0, 0)
-local FastGimpAdjustVector = Vector2.new(0, 0)
-
-local function MT_TryMoveUnmodded(player, x, y)
-    FastGimpAdjustVector:setX(x)
-    FastGimpAdjustVector:setY(y)
-
-    if player.MoveUnmodded then
-        return pcall(function()
-            player:MoveUnmodded(FastGimpAdjustVector)
-        end)
-    end
-
-    if player.Move then
-        return pcall(function()
-            player:Move(FastGimpAdjustVector)
-        end)
-    end
-
-    return false
-end
-
-local function MT_ApplyFastGimpPositionFallback(player, playerdata, speedMultiplier)
-    if not playerdata then
-        return
-    end
-
-    local oldX = playerdata.fToadTraitsPlayerX
-    local oldY = playerdata.fToadTraitsPlayerY
-    local newX = player:getX()
-    local newY = player:getY()
-
-    if oldX ~= nil and oldY ~= nil then
-        local xDiff = newX - oldX
-        local yDiff = newY - oldY
-
-        if math.abs(xDiff) <= 5 and math.abs(yDiff) <= 5 and (xDiff ~= 0 or yDiff ~= 0) then
-            player:setX(oldX + (xDiff * speedMultiplier))
-            player:setY(oldY + (yDiff * speedMultiplier))
-        end
-    end
-
-    playerdata.fToadTraitsPlayerX = player:getX()
-    playerdata.fToadTraitsPlayerY = player:getY()
-end
-
 local function MT_FastGimpMove(player)
     if not player or not player:isLocalPlayer() then
         return
@@ -2827,27 +2776,11 @@ local function MT_FastGimpMove(player)
     local hasFast = player:hasTrait(ToadTraitsRegistries.fast)
     local hasGimp = player:hasTrait(ToadTraitsRegistries.gimp)
     if not hasFast and not hasGimp then
-        return
-    end
-
-    local timeMult = getGameTime():getTrueMultiplier()
-    local pathfindingBehaviour = player:getPathFindBehavior2()
-    local isPathfinding = pathfindingBehaviour:isMovingUsingPathFind()
-
-    if isPathfinding and timeMult > 1.1 then
-        return
-    end
-
-    if isPathfinding and hasGimp then
-        local square = player:getCurrentSquare()
-        local dir = player:getDir()
-
-        if square then
-            local nextSquare = square:getAdjacentSquare(dir)
-            if nextSquare and (square:isBlockedTo(nextSquare) or square:isWindowTo(nextSquare)) then
-                return
-            end
+        if playerdata.MTFastGimpSpeedModApplied then
+            player:setSpeedMod(1.0)
+            playerdata.MTFastGimpSpeedModApplied = nil
         end
+        return
     end
 
     local modifier = 0
@@ -2869,57 +2802,20 @@ local function MT_FastGimpMove(player)
         end
     end
 
-    if modifier == 0 then
-        return
-    end
-
-    if not player:isPlayerMoving() then
-        return
-    end
-
-    player:getDeferredMovement(FastGimpVector)
-
-    local rawX = FastGimpVector:getX()
-    local rawY = FastGimpVector:getY()
-
     if hasGimp then
         -- Soften Gimp slightly from the original sandbox values so it feels less punishing.
         modifier = modifier * 0.9
     end
 
-    local x = rawX * modifier
-    local y = rawY * modifier
-
-    local beforeX = player:getX()
-    local beforeY = player:getY()
-    local movedViaEngine = MT_TryMoveUnmodded(player, x, y)
-
-    local movedDeltaX = math.abs(player:getX() - beforeX)
-    local movedDeltaY = math.abs(player:getY() - beforeY)
-    if not movedViaEngine or (movedDeltaX < 0.0001 and movedDeltaY < 0.0001) then
-        MT_ApplyFastGimpPositionFallback(player, playerdata, 1 + modifier)
-    else
-        playerdata.fToadTraitsPlayerX = player:getX()
-        playerdata.fToadTraitsPlayerY = player:getY()
+    local targetSpeedMod = 1.0
+    if player:isPlayerMoving() and modifier ~= 0 then
+        targetSpeedMod = math.max(0.05, 1.0 + modifier)
     end
 
-    -- Debug trace kept here for future troubleshooting, but disabled for normal use
-    -- so the player's console log does not get spammed every few seconds.
-    -- local now = getTimestampMs()
-    -- local lastDebug = playerdata.MTFastDebugLast or 0
-    -- if now - lastDebug >= 2000 then
-    --     playerdata.MTFastDebugLast = now
-    --     print(string.format(
-    --         "More Traits Movement Debug 42.17 shared | mode=MoveUnmodded-vector | trait=%s | state=%s | aiming=%s | modifier=%.3f | x=%.4f | y=%.4f | usedMoveUnmodded=%s",
-    --         hasFast and "fast" or "gimp",
-    --         player:isSprinting() and "sprint" or (player:isRunning() and "run" or (player:isWalking() and "walk" or "idle")),
-    --         tostring(player:isAiming()),
-    --         modifier,
-    --         x,
-    --         y,
-    --         tostring(true)
-    --     ))
-    -- end
+    if math.abs(player:getSpeedMod() - targetSpeedMod) > 0.001 then
+        player:setSpeedMod(targetSpeedMod)
+    end
+    playerdata.MTFastGimpSpeedModApplied = (targetSpeedMod ~= 1.0)
 end
 
 local function checkBloodTraits(player)
@@ -5461,15 +5357,12 @@ local function OnPlayerUpdate(player)
     CheckForPlayerBuiltContainer(player, playerdata)
     IdealWeight(player, playerdata)
     NoodleLegs(player)
+    MT_FastGimpMove(player)
     internalTick = internalTick + 1
     if internalTick > 30 then
         --Reset internalTick every 30 ticks
         internalTick = 0
     end
-end
-
-local function OnPlayerMove(player)
-    MT_FastGimpMove(player)
 end
 
 local function OnWeaponHitCharacter(actor, target, weapon, damage)
@@ -5619,7 +5512,6 @@ Events.OnWeaponHitCharacter.Add(OnWeaponHitCharacter)
 Events.OnWeaponSwing.Add(progun)
 Events.AddXP.Add(SpecializationAndAntiGun)
 Events.AddXP.Add(GymGoer)
-Events.OnPlayerMove.Add(OnPlayerMove)
 Events.OnPlayerUpdate.Add(OnPlayerUpdate)
 Events.EveryOneMinute.Add(EveryOneMinute)
 Events.EveryTenMinutes.Add(EveryTenMinutes)
