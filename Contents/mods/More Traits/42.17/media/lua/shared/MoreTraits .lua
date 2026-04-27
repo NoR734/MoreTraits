@@ -2764,15 +2764,45 @@ local function amputee(player, justGotInfected)
 end
 
 -- This is going to need some proper testing to determine what should be acceptable values for both traits as well as the actual cost to these traits.
--- In 42.17, Gimp remains on the working position-adjustment path. Fast is being
--- re-tested with the old deferred-movement math, but now using moveUnmodded(x, y),
--- which matches the currently exposed game method name/signature.
+-- In 42.17+, movement API exposure may differ (MoveUnmodded(Vector2) vs moveUnmodded(x, y)).
+-- Use the best available call at runtime so Fast/Gimp keep working across unstable patches.
 local FastGimpVector = Vector2.new(0, 0)
 
 local function MT_TryMoveUnmodded(player, x, y)
-    return pcall(function()
-        player:moveUnmodded(x, y)
-    end)
+    local ok = false
+
+    if player.MoveUnmodded then
+        FastGimpVector:setX(x)
+        FastGimpVector:setY(y)
+        ok = pcall(function()
+            player:MoveUnmodded(FastGimpVector)
+        end)
+        if ok then
+            return true
+        end
+    end
+
+    if player.moveUnmodded then
+        ok = pcall(function()
+            player:moveUnmodded(x, y)
+        end)
+        if ok then
+            return true
+        end
+    end
+
+    if player.Move then
+        FastGimpVector:setX(x)
+        FastGimpVector:setY(y)
+        ok = pcall(function()
+            player:Move(FastGimpVector)
+        end)
+        if ok then
+            return true
+        end
+    end
+
+    return false
 end
 
 local function MT_FastGimpMove(player)
@@ -2811,21 +2841,32 @@ local function MT_FastGimpMove(player)
         end
     end
 
+    local isSprinting = player.isSprinting and player:isSprinting() or false
+    local isRunning = player.isRunning and player:isRunning() or false
+    local isWalking = player.isWalking and player:isWalking() or false
+
+    -- Build 42 updates occasionally desync movement-state flags in MP.
+    -- If we are clearly moving but none of the state methods reports true,
+    -- treat it as walking so Fast/Gimp still applies at least the baseline modifier.
+    if not isSprinting and not isRunning and not isWalking and player:isPlayerMoving() then
+        isWalking = true
+    end
+
     local modifier = 0
     if hasFast then
-        if player:isSprinting() then
+        if isSprinting then
             modifier = SandboxVars.MoreTraits.FastSprint or 0.75
-        elseif player:isRunning() then
+        elseif isRunning then
             modifier = SandboxVars.MoreTraits.FastRunning or 0.5
-        elseif player:isWalking() then
+        elseif isWalking then
             modifier = SandboxVars.MoreTraits.FastWalking or 0.25
         end
     elseif hasGimp then
-        if player:isSprinting() then
+        if isSprinting then
             modifier = SandboxVars.MoreTraits.GimpSprint or -0.25
-        elseif player:isRunning() then
+        elseif isRunning then
             modifier = SandboxVars.MoreTraits.GimpRunning or -0.5
-        elseif player:isWalking() then
+        elseif isWalking then
             modifier = SandboxVars.MoreTraits.GimpWalking or -0.75
         end
     end
@@ -2850,6 +2891,11 @@ local function MT_FastGimpMove(player)
 
     local x = rawX * modifier
     local y = rawY * modifier
+    if isClient() then
+        sendClientCommand(player, "ToadTraits", "FastGimp", { xSpeed = x, ySpeed = y })
+        return
+    end
+
     MT_TryMoveUnmodded(player, x, y)
 
     -- Debug trace kept here for future troubleshooting, but disabled for normal use
@@ -2859,7 +2905,7 @@ local function MT_FastGimpMove(player)
     -- if now - lastDebug >= 2000 then
     --     playerdata.MTFastDebugLast = now
     --     print(string.format(
-    --         "More Traits Movement Debug 42.17 shared | mode=moveUnmodded-lowercase | trait=%s | state=%s | aiming=%s | modifier=%.3f | x=%.4f | y=%.4f | usedMoveUnmodded=%s",
+    --         "More Traits Movement Debug 42.17 shared | mode=runtime-fallback | trait=%s | state=%s | aiming=%s | modifier=%.3f | x=%.4f | y=%.4f | usedMoveUnmodded=%s",
     --         hasFast and "fast" or "gimp",
     --         player:isSprinting() and "sprint" or (player:isRunning() and "run" or (player:isWalking() and "walk" or "idle")),
     --         tostring(player:isAiming()),
@@ -5410,15 +5456,12 @@ local function OnPlayerUpdate(player)
     CheckForPlayerBuiltContainer(player, playerdata)
     IdealWeight(player, playerdata)
     NoodleLegs(player)
+    MT_FastGimpMove(player)
     internalTick = internalTick + 1
     if internalTick > 30 then
         --Reset internalTick every 30 ticks
         internalTick = 0
     end
-end
-
-local function OnPlayerMove(player)
-    MT_FastGimpMove(player)
 end
 
 local function OnWeaponHitCharacter(actor, target, weapon, damage)
@@ -5568,7 +5611,6 @@ Events.OnWeaponHitCharacter.Add(OnWeaponHitCharacter)
 Events.OnWeaponSwing.Add(progun)
 Events.AddXP.Add(SpecializationAndAntiGun)
 Events.AddXP.Add(GymGoer)
-Events.OnPlayerMove.Add(OnPlayerMove)
 Events.OnPlayerUpdate.Add(OnPlayerUpdate)
 Events.EveryOneMinute.Add(EveryOneMinute)
 Events.EveryTenMinutes.Add(EveryTenMinutes)

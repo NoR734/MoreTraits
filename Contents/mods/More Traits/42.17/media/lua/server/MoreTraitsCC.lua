@@ -252,12 +252,32 @@ end
 
 local FastGimpVector = Vector2.new(0, 0)
 local function ProcessFastGimp(player, args)
-    if not args.xSpeed and args.ySpeed then return end
+    if args.xSpeed == nil or args.ySpeed == nil then
+        return
+    end
+
     FastGimpVector:setX(args.xSpeed)
     FastGimpVector:setY(args.ySpeed)
+
     if player.MoveUnmodded then
-        player:MoveUnmodded(FastGimpVector)
-    elseif player.Move then
+        local ok = pcall(function()
+            player:MoveUnmodded(FastGimpVector)
+        end)
+        if ok then
+            return
+        end
+    end
+
+    if player.moveUnmodded then
+        local ok = pcall(function()
+            player:moveUnmodded(args.xSpeed, args.ySpeed)
+        end)
+        if ok then
+            return
+        end
+    end
+
+    if player.Move then
         player:Move(FastGimpVector)
     end
 end
