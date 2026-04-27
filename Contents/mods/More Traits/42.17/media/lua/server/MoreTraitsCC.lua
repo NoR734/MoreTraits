@@ -252,7 +252,7 @@ end
 
 local FastGimpVector = Vector2.new(0, 0)
 local function ProcessFastGimp(player, args)
-    if not args.xSpeed and args.ySpeed then return end
+    if not args.xSpeed or not args.ySpeed then return end
     FastGimpVector:setX(args.xSpeed)
     FastGimpVector:setY(args.ySpeed)
     if player.MoveUnmodded then
