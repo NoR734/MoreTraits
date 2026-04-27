@@ -2764,15 +2764,45 @@ local function amputee(player, justGotInfected)
 end
 
 -- This is going to need some proper testing to determine what should be acceptable values for both traits as well as the actual cost to these traits.
--- In 42.17, Gimp remains on the working position-adjustment path. Fast is being
--- re-tested with the old deferred-movement math, but now using moveUnmodded(x, y),
--- which matches the currently exposed game method name/signature.
+-- In 42.17+, movement API exposure may differ (MoveUnmodded(Vector2) vs moveUnmodded(x, y)).
+-- Use the best available call at runtime so Fast/Gimp keep working across unstable patches.
 local FastGimpVector = Vector2.new(0, 0)
 
 local function MT_TryMoveUnmodded(player, x, y)
-    return pcall(function()
-        player:moveUnmodded(x, y)
-    end)
+    local ok = false
+
+    if player.MoveUnmodded then
+        FastGimpVector:setX(x)
+        FastGimpVector:setY(y)
+        ok = pcall(function()
+            player:MoveUnmodded(FastGimpVector)
+        end)
+        if ok then
+            return true
+        end
+    end
+
+    if player.moveUnmodded then
+        ok = pcall(function()
+            player:moveUnmodded(x, y)
+        end)
+        if ok then
+            return true
+        end
+    end
+
+    if player.Move then
+        FastGimpVector:setX(x)
+        FastGimpVector:setY(y)
+        ok = pcall(function()
+            player:Move(FastGimpVector)
+        end)
+        if ok then
+            return true
+        end
+    end
+
+    return false
 end
 
 local function MT_FastGimpMove(player)
