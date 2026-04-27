@@ -5461,15 +5461,12 @@ local function OnPlayerUpdate(player)
     CheckForPlayerBuiltContainer(player, playerdata)
     IdealWeight(player, playerdata)
     NoodleLegs(player)
+    MT_FastGimpMove(player)
     internalTick = internalTick + 1
     if internalTick > 30 then
         --Reset internalTick every 30 ticks
         internalTick = 0
     end
-end
-
-local function OnPlayerMove(player)
-    MT_FastGimpMove(player)
 end
 
 local function OnWeaponHitCharacter(actor, target, weapon, damage)
@@ -5619,7 +5616,6 @@ Events.OnWeaponHitCharacter.Add(OnWeaponHitCharacter)
 Events.OnWeaponSwing.Add(progun)
 Events.AddXP.Add(SpecializationAndAntiGun)
 Events.AddXP.Add(GymGoer)
-Events.OnPlayerMove.Add(OnPlayerMove)
 Events.OnPlayerUpdate.Add(OnPlayerUpdate)
 Events.EveryOneMinute.Add(EveryOneMinute)
 Events.EveryTenMinutes.Add(EveryTenMinutes)
