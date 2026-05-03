@@ -25,7 +25,7 @@ FallenTemplar (Fallen)
 Translations:
 Simplified Chinese, by EndsM
 Traditional Chinese, by 紅茶老師
-Russian, by Xenu47, Hea
+Russian, by Xenu47, Hea, rodriguez
 German, by Marcv0dka
 Portuguese , by Cinissh
 Korean, by teray
