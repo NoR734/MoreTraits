@@ -393,6 +393,7 @@ local function initToadTraits()
     TraitFactory.setMutualExclusive("antigun", "terminator");
     TraitFactory.setMutualExclusive("antigun", "progun");
     TraitFactory.setMutualExclusive("antigun", "noxpshooter");
+    TraitFactory.setMutualExclusive("antigun", "gunspecialist");
     TraitFactory.setMutualExclusive("idealweight", "Overweight");
     TraitFactory.setMutualExclusive("idealweight", "Underweight");
     TraitFactory.setMutualExclusive("idealweight", "Very Underweight");
