@@ -1,4 +1,50 @@
 --- Useful Functions
+
+local function clamp(value, minValue, maxValue)
+    if value < minValue then return minValue end
+    if value > maxValue then return maxValue end
+    return value
+end
+
+local statLimits = {
+    panic = { CharacterStat.PANIC, 0, 100 },
+    stress = { CharacterStat.STRESS, 0, 1 },
+    fatigue = { CharacterStat.FATIGUE, 0, 1 },
+    pain = { CharacterStat.PAIN, 0, 100 },
+    boredom = { CharacterStat.BOREDOM, 0, 100 },
+    unhappiness = { CharacterStat.UNHAPPINESS, 0, 100 },
+    zombie_fever = { CharacterStat.ZOMBIE_FEVER, 0, 100 },
+    sickness = { CharacterStat.SICKNESS, 0, 100 },
+    anger = { CharacterStat.ANGER, 0, 1 },
+    idleness = { CharacterStat.IDLENESS, 0, 1 },
+    poison = { CharacterStat.POISON, 0, 100 },
+    endurance = { CharacterStat.ENDURANCE, 0, 1 },
+}
+
+local commandTraitRequirements = {
+    Vagabond = "Vagabond",
+    Scrounger = "Scrounger",
+    Antique = "AntiqueCollector",
+    Incomprehensive = "Incomprehensive",
+    Gourmand = "Gourmand",
+    GraveRobber = "Graverobber",
+    FastGimp = "Gimp",
+    Immunocompromised = "Immunocompromised",
+    GlassBody = "GlassBody",
+    InfectPlayer = "Immunocompromised",
+    EvasiveDodge = "Evasive",
+    ApplyGordanite = "Gordanite",
+    RevertGordanite = "Gordanite",
+    ProwessGuns = "GunSpecialist",
+}
+
+local function canProcessTraitCommand(player, command)
+    local trait = commandTraitRequirements[command]
+    if not trait then
+        return true
+    end
+    return player and player:hasTrait(trait)
+end
 local function tableContains(t, e)
     for _, value in pairs(t) do
         if value == e then
@@ -127,27 +173,13 @@ end
 local function UpdateStats(player, args, command)
     local stats = player:getStats()
 
-    if args.panic ~= nil then
-        stats:set(CharacterStat.PANIC, args.panic)
+    for field, config in pairs(statLimits) do
+        local value = args[field]
+        if value ~= nil then
+            stats:set(config[1], clamp(value, config[2], config[3]))
+        end
     end
-    if args.stress ~= nil then
-        stats:set(CharacterStat.STRESS, args.stress)
-    end
-    if args.fatigue ~= nil then
-        stats:set(CharacterStat.FATIGUE, args.fatigue)
-    end
-    if args.pain ~= nil then
-        stats:set(CharacterStat.PAIN, args.pain)
-    end
-    if args.boredom ~= nil then
-        stats:set(CharacterStat.BOREDOM, args.boredom)
-    end
-    if args.unhappiness ~= nil then
-        stats:set(CharacterStat.UNHAPPINESS, args.unhappiness)
-    end
-    if args.zombie_fever ~= nil then
-        stats:set(CharacterStat.ZOMBIE_FEVER, args.zombie_fever)
-    end
+
     if args.zombie_infection ~= nil then
         stats:set(CharacterStat.ZOMBIE_INFECTION, args.zombie_infection)
         if args.zombie_infection == 0 and args.clear_wounds then
@@ -158,31 +190,16 @@ local function UpdateStats(player, args, command)
 
             local parts = bodyDamage:getBodyParts()
             for i = 0, parts:size() - 1 do
-                local b = parts:get(i);
+                local b = parts:get(i)
                 if b:HasInjury() and b:isInfectedWound() then
-                    b:SetInfected(false);
-                    b:setInfectedWound(false);
+                    b:SetInfected(false)
+                    b:setInfectedWound(false)
                 end
                 if args.amputee then
-                    b:RestoreToFullHealth();
+                    b:RestoreToFullHealth()
                 end
-            end 
+            end
         end
-    end
-    if args.sickness ~= nil then
-        stats:set(CharacterStat.SICKNESS, args.sickness)
-    end
-    if args.anger ~= nil then
-        stats:set(CharacterStat.ANGER, args.anger)
-    end
-    if args.idleness ~= nil then
-        stats:set(CharacterStat.IDLENESS, args.idleness)
-    end
-    if args.poison ~= nil then
-        stats:set(CharacterStat.POISON, args.poison)
-    end
-    if args.endurance ~= nil then
-        stats:set(CharacterStat.ENDURANCE, args.endurance)
     end
 
     -- print("Server: " .. tostring(command) .. " (Update) applied to " .. player:getUsername())
@@ -385,78 +402,41 @@ local function ProcessProwessGuns(player, args)
     sendAddItemToContainer(primaryWeapon:getContainer(), player)
 end
 
+local commandHandlers = {
+    Vagabond = function(player, args) ProcessTraitLoot(player, args, "bVagbondRolled", "bin") end,
+    Scrounger = function(player, args) ProcessTraitLoot(player, args, "bScroungerorIncomprehensiveRolled", nil) end,
+    Antique = function(player, args) ProcessTraitLoot(player, args, "bAntiqueRolled", nil) end,
+    Incomprehensive = function(player, args) ProcessTraitLootRemoval(player, args, "bScroungerorIncomprehensiveRolled") end,
+    Gourmand = ProcessGourmand,
+    GraveRobber = ProcessGraveRobber,
+    UpdateStats = UpdateStats,
+    BodyPartMechanics = ProcessBodyPartMechanics,
+    MT_updateWeight = ProcessUpdateWeight,
+    FastGimp = ProcessFastGimp,
+    Immunocompromised = ProcessImmunocompromised,
+    GlassBody = ProcessGlassBody,
+    InfectPlayer = function(player, _) ProcessInfectPlayer(player) end,
+    EvasiveDodge = ProcessEvasive,
+    ApplyGordanite = ProcessApplyGordanite,
+    RevertGordanite = ProcessRevertGordanite,
+    ProwessGuns = ProcessProwessGuns,
+}
+
 local function onClientCommands(module, command, player, args)
     if module ~= 'ToadTraits' then
         return
     end
 
-    if command == 'Vagabond' then
-        ProcessTraitLoot(player, args, "bVagbondRolled", "bin")
+    if not canProcessTraitCommand(player, command) then
+        return
     end
 
-    if command == 'Scrounger' then
-        ProcessTraitLoot(player, args, "bScroungerorIncomprehensiveRolled", nil)
+    local handler = commandHandlers[command]
+    if not handler then
+        return
     end
 
-    if command == 'Antique' then
-        ProcessTraitLoot(player, args, "bAntiqueRolled", nil)
-    end
-
-    if command == 'Incomprehensive' then
-        ProcessTraitLootRemoval(player, args, "bScroungerorIncomprehensiveRolled")
-    end
-
-    if command == 'Gourmand' then
-        ProcessGourmand(player, args)
-    end
-
-    if command == 'GraveRobber' then
-        ProcessGraveRobber(player, args)
-    end
-
-    if command == 'UpdateStats' then
-        UpdateStats(player, args, command)
-    end
-
-    if command == 'BodyPartMechanics' then
-        ProcessBodyPartMechanics(player, args)
-    end
-
-    if command == 'MT_updateWeight' then
-        ProcessUpdateWeight(player, args)
-    end
-
-    if command == 'FastGimp' then
-        ProcessFastGimp(player, args)
-    end
-
-    if command == 'Immunocompromised' then
-        ProcessImmunocompromised(player, args)
-    end
-
-    if command == 'GlassBody' then
-        ProcessGlassBody(player, args)
-    end
-
-    if command == 'InfectPlayer' then
-        ProcessInfectPlayer(player)
-    end
-
-    if command == 'EvasiveDodge' then
-        ProcessEvasive(player, args)
-    end
-
-    if command == 'ApplyGordanite' then
-        ProcessApplyGordanite(player, args)
-    end
-
-    if command == 'RevertGordanite' then
-        ProcessRevertGordanite(player, args)
-    end
-    
-    if command == 'ProwessGuns' then
-        ProcessProwessGuns(player, args)
-    end
+    handler(player, args or {}, command)
 end
 
 Events.OnClientCommand.Add(onClientCommands)

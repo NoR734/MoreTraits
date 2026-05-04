@@ -2770,9 +2770,24 @@ end
 local FastGimpVector = Vector2.new(0, 0)
 
 local function MT_TryMoveUnmodded(player, x, y)
-    return pcall(function()
-        player:moveUnmodded(x, y)
-    end)
+    if player.moveUnmodded then
+        local ok = pcall(function()
+            player:moveUnmodded(x, y)
+        end)
+        if ok then
+            return true
+        end
+    end
+
+    if player.MoveUnmodded then
+        return pcall(function()
+            FastGimpVector:setX(x)
+            FastGimpVector:setY(y)
+            player:MoveUnmodded(FastGimpVector)
+        end)
+    end
+
+    return false
 end
 
 local function MT_FastGimpMove(player)
@@ -2850,7 +2865,12 @@ local function MT_FastGimpMove(player)
 
     local x = rawX * modifier
     local y = rawY * modifier
-    MT_TryMoveUnmodded(player, x, y)
+
+    if isClient() then
+        sendClientCommand(player, "ToadTraits", "FastGimp", { xSpeed = x, ySpeed = y })
+    else
+        MT_TryMoveUnmodded(player, x, y)
+    end
 
     -- Debug trace kept here for future troubleshooting, but disabled for normal use
     -- so the player's console log does not get spammed every few seconds.
@@ -3280,6 +3300,25 @@ local function SuperImmuneFakeInfectionHealthLoss(player, playerdata)
     local currentHealth = bodyDamage:getOverallBodyHealth()
     local targetHealth = math.max(maxHealth, 100 - illness) -- Prevent it dropping below maxHealth unless Lethal
 
+    if player:isAsleep() and not playerdata.SuperImmuneLethal then
+        local parts = bodyDamage:getBodyParts()
+        local randomBodyPart = parts:get(ZombRand(0, parts:size() - 1))
+        local overTarget = math.max(0, currentHealth - targetHealth)
+        local sleepDamage = math.min(0.20, 0.03 + (overTarget * 0.08))
+
+        if isClient() then
+            local bodyPartIndex = BodyPartType.ToIndex(randomBodyPart:getType())
+            sendClientCommand(player, "ToadTraits", "BodyPartMechanics", {
+                bodyPart = bodyPartIndex,
+                partDamage = sleepDamage,
+            })
+        else
+            randomBodyPart:AddDamage(sleepDamage)
+        end
+
+        return
+    end
+
     if currentHealth >= targetHealth or currentHealth > maxHealth then
         local parts = bodyDamage:getBodyParts()
         -- Increased damage amounts because this only fires once per in-game minute
@@ -3299,6 +3338,14 @@ local function SuperImmuneFakeInfectionHealthLoss(player, playerdata)
         --Rapidly lose health if it is too high, to prevent sleep abuse in order to stay healthy
         if illness >= 50 and currentHealth > maxHealth + 5 then
             damageAmount = damageAmount + 5.0
+        end
+
+        if not playerdata.SuperImmuneLethal then
+            local safeDelta = math.max(0, currentHealth - targetHealth)
+            if safeDelta <= 0.1 then
+                return
+            end
+            damageAmount = math.min(damageAmount, safeDelta)
         end
 
         local randomBodyPart = parts:get(ZombRand(0, parts:size() - 1))
